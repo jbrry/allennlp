@@ -196,6 +196,40 @@ class Optimizer(torch.optim.Optimizer, Registrable):
         return Optimizer.from_params(model_parameters=model_parameters, params=Params({}))
 
 
+@Optimizer.register("regex")
+class RegexOptimizer(Optimizer):
+    """
+    This `Optimizer` uses regexes to create parameter groups which will be assigned their own optimizer.
+    Much like how in other Optimizers, parameter_groups are used to create different parameter groups which 
+    have different optimizer values; this class creates a separate optimizer entirely.
+
+    optimizers : `List[Tuple[List[str], Dict[str, Any]]] = None,`
+        A list of tuples, where the first element of the tuple is a list of regexes which are used to create parameter groups. 
+        The second element in the tuple is a dictionary which specifies the optimizer to use, its kwargs as well as a name for the optimizer for this group.
+        The name will be used to match this optimizer to the right loss value.
+
+    """
+    def __init__(self, model_parameters, optimizers):
+        self.optimizers = optimizers
+        
+        # Mapping of a specific name to Optimizer
+        self._optimizer_stack: Dict[str, Optimizer] = {}
+
+        # Create parameter_groups for specific regexes
+        # `optimizers` behave exactly as `parameter_groups` except that additional metadata is included which specifies
+        # the optimizer type, e.g. 'adam' as well as a name which will be used as the key for this optimizer.
+        parameter_groups = make_parameter_groups(model_parameters, optimizers)
+
+        # For each of the parameter groups, create a separate Optimizer
+        for parameter_group in parameter_groups:
+            params = parameter_group["params"]
+            if "name" in parameter_group.keys():
+                self._optimizer_stack[parameter_group["name"]] = Optimizer.from_params(model_parameters=params, params=Params({}))
+            # The last entry in parameter_groups is created for the default group
+            else:
+                self._optimizer_stack["default"] = Optimizer.from_params(model_parameters=params, params=Params({}))
+
+
 @Optimizer.register("adam")
 class AdamOptimizer(Optimizer, torch.optim.Adam):
     """
