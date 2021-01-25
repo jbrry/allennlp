@@ -741,6 +741,8 @@ class GradientDescentTrainer(Trainer):
                         train_reg_loss += batch_reg_loss  # type: ignore
 
                 if self._scaler is not None:
+                    # NOTE: If your network has multiple losses, you must call scaler.scale on each of them individually.
+                    # See: https://pytorch.org/docs/stable/notes/amp_examples.html#working-with-multiple-models-losses-and-optimizers for more details.
                     self._scaler.scale(loss).backward()
                 else:
                     loss.backward()
@@ -768,13 +770,12 @@ class GradientDescentTrainer(Trainer):
                 }
 
                 if self._scaler is not None:
+                    # NOTE: scaler.update should only be called once, after all optimizers used this iteration have been stepped
                     if isinstance(self.optimizer, dict):
                         for optimizer in self.optimizer.values:
-                            # I don't think this will work
                             self._scaler.step(optimizer)
                     else:
                         self._scaler.step(self.optimizer)
-
                     self._scaler.update()
                 else:
                     if isinstance(self.optimizer, dict):
@@ -787,8 +788,11 @@ class GradientDescentTrainer(Trainer):
                     param_updates[name].sub_(param.detach().cpu())
             else:
                 if self._scaler is not None:
-                    # TODO: how do the scaler and optimizers interact?
-                    self._scaler.step(self.optimizer)
+                    if isinstance(self.optimizer, dict):
+                        for optimizer in self.optimizer.values:
+                            self._scaler.step(optimizer)
+                    else:
+                        self._scaler.step(self.optimizer)
                     self._scaler.update()
                 else:
                     if isinstance(self.optimizer, dict):
