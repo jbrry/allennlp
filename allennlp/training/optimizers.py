@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 def make_parameter_groups(
     model_parameters: List[Tuple[str, torch.nn.Parameter]],
-    groups: List[Tuple[List[str], Dict[str, Any]]] = None,
+    groups: List[Tuple[List[str], Dict[str, Any]]] = None, # changed from groups to optimizers
 ) -> Union[List[Dict[str, Any]], List[torch.nn.Parameter]]:
     """
     Takes a list of model parameters with associated names (typically coming from something like
@@ -209,25 +209,43 @@ class RegexOptimizer(Optimizer):
         The name will be used to match this optimizer to the right loss value.
 
     """
-    def __init__(self, model_parameters, optimizers):
-        self.optimizers = optimizers
-        
-        # Mapping of a specific name to Optimizer
-        self._optimizer_stack: Dict[str, Optimizer] = {}
+    def __init__(self,
+                model_parameters: List[Tuple[str, torch.nn.Parameter]],
+                optimizer_ignore_keys: List[str],
+                default_optimizer_kwargs: Dict[str, Any],
+                optimizers: List[Tuple[List[str], Dict[str, Any]]]):
 
-        # Create parameter_groups for specific regexes
+        self.optimizers = optimizers
+        self.optimizer_ignore_keys = optimizer_ignore_keys
+        self.default_optimizer_kwargs = default_optimizer_kwargs
+
+        self._regex_optimizers: Dict[str, Optimizer] = {}
+
+        # Create parameter_groups for specific regexes.
         # `optimizers` behave exactly as `parameter_groups` except that additional metadata is included which specifies
         # the optimizer type, e.g. 'adam' as well as a name which will be used as the key for this optimizer.
+        # You can include any keys you want here but if those keys are not accepted by the optimizer you want to use,
+        # you should add them to `optimizer_ignore_keys` so they are not passed to the optimizer.
         parameter_groups = make_parameter_groups(model_parameters, optimizers)
 
         # For each of the parameter groups, create a separate Optimizer
         for parameter_group in parameter_groups:
             params = parameter_group["params"]
+
+            # Populate optimizer kwargs
+            optimizer_kwargs = {}
+            for key in list(parameter_group.keys()):
+                # Exclude non-default optimizer keys, e.g. those used for metadata.
+                if key not in self.optimizer_ignore_keys:
+                    optimizer_kwargs[key] = parameter_group[key]
+            
+            # TODO: When deferring to separate optimizers, the model parameters are initialized with the `make_parameter_groups`
+            # function but we have already created our parameter groups.
             if "name" in parameter_group.keys():
-                self._optimizer_stack[parameter_group["name"]] = Optimizer.from_params(model_parameters=params, params=Params({}))
+                self._regex_optimizers[parameter_group["name"]] = Optimizer.from_params(model_parameters=params, params=Params(optimizer_kwargs))
             # The last entry in parameter_groups is created for the default group
             else:
-                self._optimizer_stack["default"] = Optimizer.from_params(model_parameters=params, params=Params({}))
+                self._regex_optimizers["default"] = Optimizer.from_params(model_parameters=params, params=Params(self.default_optimizer_kwargs))
 
 
 @Optimizer.register("adam")
@@ -247,7 +265,8 @@ class AdamOptimizer(Optimizer, torch.optim.Adam):
         amsgrad: bool = False,
     ):
         super().__init__(
-            params=make_parameter_groups(model_parameters, parameter_groups),
+            #params=make_parameter_groups(model_parameters, parameter_groups),
+            params=model_parameters,
             lr=lr,
             betas=betas,
             eps=eps,
@@ -271,7 +290,8 @@ class SparseAdamOptimizer(Optimizer, torch.optim.SparseAdam):
         eps: float = 1e-08,
     ):
         super().__init__(
-            params=make_parameter_groups(model_parameters, parameter_groups),
+            #params=make_parameter_groups(model_parameters, parameter_groups),
+            params=model_parameters,
             lr=lr,
             betas=betas,
             eps=eps,
@@ -319,7 +339,8 @@ class AdamWOptimizer(Optimizer, torch.optim.AdamW):
         amsgrad: bool = False,
     ):
         super().__init__(
-            params=make_parameter_groups(model_parameters, parameter_groups),
+            #params=make_parameter_groups(model_parameters, parameter_groups),
+            params=params,
             lr=lr,
             betas=betas,
             eps=eps,
