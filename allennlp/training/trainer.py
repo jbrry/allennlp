@@ -28,7 +28,7 @@ from allennlp.training.learning_rate_schedulers import LearningRateScheduler
 from allennlp.training.metric_tracker import MetricTracker
 from allennlp.training.momentum_schedulers import MomentumScheduler
 from allennlp.training.moving_average import MovingAverage
-from allennlp.training.optimizers import Optimizer
+from allennlp.training.optimizers import Optimizer, RegexOptimizer
 from allennlp.training.tensorboard_writer import TensorboardWriter
 
 logger = logging.getLogger(__name__)
@@ -467,7 +467,7 @@ class GradientDescentTrainer(Trainer):
     def __init__(
         self,
         model: Model,
-        optimizer: torch.optim.Optimizer,
+        optimizer: Optimizer,
         data_loader: DataLoader,
         patience: Optional[int] = None,
         validation_metric: Union[str, List[str]] = "-loss",
@@ -503,8 +503,12 @@ class GradientDescentTrainer(Trainer):
         self._validation_data_loader = validation_data_loader
         if self._validation_data_loader is not None:
             self._validation_data_loader.set_target_device(self.cuda_device)
-        self.optimizer = optimizer
-
+        
+        try:
+            self.optimizer = optimizer._regex_optimizers
+        except AttributeError:
+            self.optimizer = optimizer
+        
         if patience is None:  # no early stopping
             if validation_data_loader is not None:
                 logger.warning(
@@ -588,7 +592,11 @@ class GradientDescentTrainer(Trainer):
         if self._grad_norm:
             if self._scaler is not None:
                 # Need to first unscale gradients in order to clip as usual.
-                self._scaler.unscale_(self.optimizer)
+                if isinstance(self.optimizer, dict):
+                    for optimizer in self.optimizer.values:
+                        self._scaler.unscale_(optimizer)
+                else:
+                    self._scaler.unscale_(self.optimizer)
             return clip_grad_norm_(parameters_to_clip, self._grad_norm)
         else:
             return torch.norm(
@@ -681,7 +689,7 @@ class GradientDescentTrainer(Trainer):
             if self._distributed:
                 # Check whether the other workers have stopped already (due to differing amounts of
                 # data in each). If so, we can't proceed because we would hang when we hit the
-                # barrier implicit in Model.forward. We use a IntTensor instead a BoolTensor
+                # barrier implicit in Model.forward. We use a IntTensor instead of a BoolTensor
                 # here because NCCL process groups apparently don't support BoolTensor.
                 done = torch.tensor(0, device=self.cuda_device)
                 torch.distributed.all_reduce(done, torch.distributed.ReduceOp.SUM)
@@ -704,9 +712,15 @@ class GradientDescentTrainer(Trainer):
             # Zero gradients.
             # NOTE: this is actually more efficient than calling `self.optimizer.zero_grad()`
             # because it avoids a read op when the gradients are first updated below.
-            for param_group in self.optimizer.param_groups:
-                for p in param_group["params"]:
-                    p.grad = None
+            if isinstance(self.optimizer, dict):
+                for optimizer in self.optimizer.values():
+                    for param_group in optimizer.param_groups:
+                        for p in param_group["params"]:
+                            p.grad = None
+            else:
+                for param_group in self.optimizer.param_groups:
+                    for p in param_group["params"]:
+                        p.grad = None
 
             batch_loss = 0.0
             batch_group_outputs = []
@@ -754,19 +768,34 @@ class GradientDescentTrainer(Trainer):
                 }
 
                 if self._scaler is not None:
-                    self._scaler.step(self.optimizer)
+                    if isinstance(self.optimizer, dict):
+                        for optimizer in self.optimizer.values:
+                            # I don't think this will work
+                            self._scaler.step(optimizer)
+                    else:
+                        self._scaler.step(self.optimizer)
+
                     self._scaler.update()
                 else:
-                    self.optimizer.step()
+                    if isinstance(self.optimizer, dict):
+                        for optimizer in self.optimizer.values:
+                            optimizer.step()
+                    else:
+                        self.optimizer.step()
 
                 for name, param in self.model.named_parameters():
                     param_updates[name].sub_(param.detach().cpu())
             else:
                 if self._scaler is not None:
+                    # TODO: how do the scaler and optimizers interact?
                     self._scaler.step(self.optimizer)
                     self._scaler.update()
                 else:
-                    self.optimizer.step()
+                    if isinstance(self.optimizer, dict):
+                        for optimizer in self.optimizer.values():
+                            optimizer.step()
+                    else:
+                        self.optimizer.step()
 
             # Update moving averages
             if self._moving_average is not None:
@@ -790,7 +819,7 @@ class GradientDescentTrainer(Trainer):
                 batch_group_generator_tqdm.set_description(description, refresh=False)
                 self._tensorboard.log_batch(
                     self.model,
-                    self.optimizer,
+                    self.optimizer, # TODO
                     batch_grad_norm,
                     metrics,
                     batch_group,
@@ -1130,7 +1159,7 @@ class GradientDescentTrainer(Trainer):
         # These are the training states we need to persist.
         training_states = {
             "metric_tracker": self._metric_tracker.state_dict(),
-            "optimizer": self.optimizer.state_dict(),
+            "optimizer": [optimizer.state_dict() for optimizer in self.optimizer.values()], # TODO
             "batch_num_total": self._batch_num_total,
         }
 
@@ -1174,7 +1203,13 @@ class GradientDescentTrainer(Trainer):
             return 0
 
         self.model.load_state_dict(model_state)
-        self.optimizer.load_state_dict(training_state["optimizer"])
+
+        if isinstance(self.optimizer, dict):
+            for optimizer in self.optimizer.values:
+                optimizer.load_state_dict(training_state["optimizer"]) # will training_state["optimizer"] work? how about [i]?
+        else:
+            self.optimizer.load_state_dict(training_state["optimizer"])
+       
         if (
             self._learning_rate_scheduler is not None
             and "learning_rate_scheduler" in training_state
