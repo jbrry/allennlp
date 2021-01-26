@@ -652,21 +652,6 @@ class GradientDescentTrainer(Trainer):
         # Set the model to "train" mode.
         self._pytorch_model.train()
 
-
-        ## VISUALISE MODEL
-        # Print model's state_dict
-        # print("Model's state_dict:")
-        # for param_tensor in self._pytorch_model.state_dict():
-        #     print(param_tensor, "\t", self._pytorch_model.state_dict()[param_tensor].size())
-
-
-        # Print optimizer's state_dict
-        print("Optimizer's state_dict:")
-        if isinstance(self.optimizer, dict):
-            for optimizer in self.optimizer.values():                        
-                for var_name in optimizer.state_dict():
-                    print(var_name, "\t", optimizer.state_dict()[var_name])
-
         # Get tqdm for the training batches
         batch_generator = iter(self.data_loader)
         batch_group_generator = common_util.lazy_groups_of(
