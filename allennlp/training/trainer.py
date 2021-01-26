@@ -505,7 +505,7 @@ class GradientDescentTrainer(Trainer):
             self._validation_data_loader.set_target_device(self.cuda_device)
         
         try:
-            self.optimizer = optimizer._regex_optimizers
+            self.optimizer = optimizer._grouped_optimizers
         except AttributeError:
             self.optimizer = optimizer
         
@@ -593,7 +593,7 @@ class GradientDescentTrainer(Trainer):
             if self._scaler is not None:
                 # Need to first unscale gradients in order to clip as usual.
                 if isinstance(self.optimizer, dict):
-                    for optimizer in self.optimizer.values:
+                    for optimizer in self.optimizer.values():
                         self._scaler.unscale_(optimizer)
                 else:
                     self._scaler.unscale_(self.optimizer)
@@ -772,14 +772,14 @@ class GradientDescentTrainer(Trainer):
                 if self._scaler is not None:
                     # NOTE: scaler.update should only be called once, after all optimizers used this iteration have been stepped
                     if isinstance(self.optimizer, dict):
-                        for optimizer in self.optimizer.values:
+                        for optimizer in self.optimizer.values():
                             self._scaler.step(optimizer)
                     else:
                         self._scaler.step(self.optimizer)
                     self._scaler.update()
                 else:
                     if isinstance(self.optimizer, dict):
-                        for optimizer in self.optimizer.values:
+                        for optimizer in self.optimizer.values():
                             optimizer.step()
                     else:
                         self.optimizer.step()
@@ -789,7 +789,7 @@ class GradientDescentTrainer(Trainer):
             else:
                 if self._scaler is not None:
                     if isinstance(self.optimizer, dict):
-                        for optimizer in self.optimizer.values:
+                        for optimizer in self.optimizer.values():
                             self._scaler.step(optimizer)
                     else:
                         self._scaler.step(self.optimizer)
@@ -1209,7 +1209,7 @@ class GradientDescentTrainer(Trainer):
         self.model.load_state_dict(model_state)
 
         if isinstance(self.optimizer, dict):
-            for optimizer in self.optimizer.values:
+            for optimizer in self.optimizer.values():
                 optimizer.load_state_dict(training_state["optimizer"]) # will training_state["optimizer"] work? how about [i]?
         else:
             self.optimizer.load_state_dict(training_state["optimizer"])
