@@ -255,10 +255,6 @@ class RegexOptimizer(Optimizer):
             else:
                 self._grouped_optimizers["default"] = Optimizer.from_params(model_parameters=params, params=Params(self.default_optimizer_kwargs))
 
-        print(self._grouped_optimizers)
-        print(RegexOptimizer.__doc__)
-        raise ValueError
-
 
 @Optimizer.register("adam")
 class AdamOptimizer(Optimizer, torch.optim.Adam):
