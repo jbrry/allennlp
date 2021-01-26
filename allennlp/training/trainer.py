@@ -28,7 +28,7 @@ from allennlp.training.learning_rate_schedulers import LearningRateScheduler
 from allennlp.training.metric_tracker import MetricTracker
 from allennlp.training.momentum_schedulers import MomentumScheduler
 from allennlp.training.moving_average import MovingAverage
-from allennlp.training.optimizers import Optimizer, RegexOptimizer
+from allennlp.training.optimizers import Optimizer
 from allennlp.training.tensorboard_writer import TensorboardWriter
 
 logger = logging.getLogger(__name__)
@@ -652,6 +652,21 @@ class GradientDescentTrainer(Trainer):
         # Set the model to "train" mode.
         self._pytorch_model.train()
 
+
+        ## VISUALISE MODEL
+        # Print model's state_dict
+        # print("Model's state_dict:")
+        # for param_tensor in self._pytorch_model.state_dict():
+        #     print(param_tensor, "\t", self._pytorch_model.state_dict()[param_tensor].size())
+
+
+        # Print optimizer's state_dict
+        print("Optimizer's state_dict:")
+        if isinstance(self.optimizer, dict):
+            for optimizer in self.optimizer.values():                        
+                for var_name in optimizer.state_dict():
+                    print(var_name, "\t", optimizer.state_dict()[var_name])
+
         # Get tqdm for the training batches
         batch_generator = iter(self.data_loader)
         batch_group_generator = common_util.lazy_groups_of(
@@ -1163,9 +1178,18 @@ class GradientDescentTrainer(Trainer):
         # These are the training states we need to persist.
         training_states = {
             "metric_tracker": self._metric_tracker.state_dict(),
-            "optimizer": [optimizer.state_dict() for optimizer in self.optimizer.values()], # TODO
             "batch_num_total": self._batch_num_total,
         }
+        # We can have multiple optimizers, so we will create a dictionary mapping an optimizer key 
+        # to the optimizer state_dict and update the `training_states` dictionary with it.
+        optimizer_state_dict = {}
+        if isinstance(self.optimizer, dict):    
+            for optimizer_key, optimizer in self.optimizer.items():
+                optimizer_state_dict[f"{optimizer_key}_optimizer"] = optimizer.state_dict()
+        else:
+            optimizer_state_dict["optimizer"] = self.optimizer.state_dict()
+
+        training_states.update(optimizer_state_dict)
 
         # If we have a learning rate or momentum scheduler, we should persist them too.
         if self._learning_rate_scheduler is not None:
@@ -1209,8 +1233,8 @@ class GradientDescentTrainer(Trainer):
         self.model.load_state_dict(model_state)
 
         if isinstance(self.optimizer, dict):
-            for optimizer in self.optimizer.values():
-                optimizer.load_state_dict(training_state["optimizer"]) # will training_state["optimizer"] work? how about [i]?
+            for optimizer_key, optimizer in self.optimizer.items():
+                optimizer.load_state_dict(training_state[f"{optimizer_key}_optimizer"])
         else:
             self.optimizer.load_state_dict(training_state["optimizer"])
        
