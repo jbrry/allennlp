@@ -199,40 +199,48 @@ class Optimizer(torch.optim.Optimizer, Registrable):
 @Optimizer.register("regex")
 class RegexOptimizer(Optimizer):
     """
-    This `Optimizer` uses regexes to create parameter groups which will be assigned their own optimizer.
-    Much like how in other Optimizers, parameter_groups are used to create different parameter groups which 
-    have different optimizer values; this class creates a separate optimizer entirely.
+    This `Optimizer` uses regexes to create parameter groups which are assigned their own optimizer.
+    It creates an object `_grouped_optimizers` which is a dictionary mapping a `name` to an optimizer.
 
-    optimizers : `List[Tuple[List[str], Dict[str, Any]]] = None,`
+    optimizers : `List[Tuple[List[str], Dict[str, Any]]] = None`
         A list of tuples, where the first element of the tuple is a list of regexes which are used to create parameter groups. 
-        The second element in the tuple is a dictionary which specifies the optimizer to use, its kwargs as well as a name for the optimizer for this group.
-        The name will be used to match this optimizer to the right loss value.
+        The second element in the tuple is a dictionary which specifies the type of optimizer to use, its kwargs as well as a name 
+        which will be used as a dictionary key for this optimizer.
 
+    optimizer_ignore_keys : `List[str]`
+        A list containing keys to ignore. These should be for keys used in `optimizers` which are not valid keyword arguments to the 
+        optimizer such as a `name` or `params` key.
+
+    default_optimizer_kwargs : `Dict[str, Any]`
+        The keyword arguments for the default optimizer group. The default optimizer group consists of model parameters which do not 
+        match the supplied regexes in `optimizers`.
+    
     """
     def __init__(self,
                 model_parameters: List[Tuple[str, torch.nn.Parameter]],
+                optimizers: List[Tuple[List[str], Dict[str, Any]]],
                 optimizer_ignore_keys: List[str],
                 default_optimizer_kwargs: Dict[str, Any],
-                optimizers: List[Tuple[List[str], Dict[str, Any]]]):
+                ):
 
         self.optimizers = optimizers
         self.optimizer_ignore_keys = optimizer_ignore_keys
         self.default_optimizer_kwargs = default_optimizer_kwargs
 
-        self._regex_optimizers: Dict[str, Optimizer] = {}
+        self._grouped_optimizers: Dict[str, Optimizer] = {}
 
         # Create parameter_groups for specific regexes.
         # `optimizers` behave exactly as `parameter_groups` except that additional metadata is included which specifies
         # the optimizer type, e.g. 'adam' as well as a name which will be used as the key for this optimizer.
-        # You can include any keys you want here but if those keys are not accepted by the optimizer you want to use,
+        # You can include any keyword arguments you want here but if those keys are not accepted by the optimizer you want to use,
         # you should add them to `optimizer_ignore_keys` so they are not passed to the optimizer.
         parameter_groups = make_parameter_groups(model_parameters, optimizers)
 
-        # For each of the parameter groups, create a separate Optimizer
+        # For each of the parameter groups, create a separate Optimizer.
         for parameter_group in parameter_groups:
             params = parameter_group["params"]
 
-            # Populate optimizer kwargs
+            # Populate optimizer kwargs.
             optimizer_kwargs = {}
             for key in list(parameter_group.keys()):
                 # Exclude non-default optimizer keys, e.g. those used for metadata.
@@ -242,10 +250,14 @@ class RegexOptimizer(Optimizer):
             # TODO: When deferring to separate optimizers, the model parameters are initialized with the `make_parameter_groups`
             # function but we have already created our parameter groups.
             if "name" in parameter_group.keys():
-                self._regex_optimizers[parameter_group["name"]] = Optimizer.from_params(model_parameters=params, params=Params(optimizer_kwargs))
-            # The last entry in parameter_groups is created for the default group
+                self._grouped_optimizers[parameter_group["name"]] = Optimizer.from_params(model_parameters=params, params=Params(optimizer_kwargs))
+            # The last entry in parameter_groups is created for the default group.
             else:
-                self._regex_optimizers["default"] = Optimizer.from_params(model_parameters=params, params=Params(self.default_optimizer_kwargs))
+                self._grouped_optimizers["default"] = Optimizer.from_params(model_parameters=params, params=Params(self.default_optimizer_kwargs))
+
+        print(self._grouped_optimizers)
+        print(RegexOptimizer.__doc__)
+        raise ValueError
 
 
 @Optimizer.register("adam")
