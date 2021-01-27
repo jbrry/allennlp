@@ -4,7 +4,6 @@ on:
   pull_request:
     branches:
     - main
-    - vision
   push:
     branches:
     - main
@@ -153,8 +152,6 @@ jobs:
       run: |
         git clone https://github.com/allenai/allennlp-models.git
         cd allennlp-models
-        # TODO: remove this next line when it's no longer necessary.
-        git checkout vision
         pip install --upgrade --upgrade-strategy eager -e . -r dev-requirements.txt
 
     - name: Run models tests
@@ -393,15 +390,19 @@ jobs:
       run: |
         ./scripts/build_docs.sh
 
+    - name: Print the ref
+      run: |
+        echo ${{ github.ref }}
+
     - name: Configure Git
-      if: (github.event_name == 'release' || github.event_name == 'push') && github.ref == 'refs/heads/master'
+      if: github.event_name == 'release' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
       run: |
         git config --global user.email "ai2service@allenai.org"
         git config --global user.name "ai2service"
         git config --global push.default simple
 
     - name: Stage docs
-      if: (github.event_name == 'release' || github.event_name == 'push') && github.ref == 'refs/heads/master'
+      if: github.event_name == 'release' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
       run: |
         echo "Staging docs to $DOCS_FOLDER"
 
@@ -453,7 +454,7 @@ jobs:
         EOL
 
     - name: Deploy docs
-      if: (github.event_name == 'release' || github.event_name == 'push') && github.ref == 'refs/heads/master'
+      if: github.event_name == 'release' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
       run: |
         # And push them up to GitHub
         cd ~/allennlp-docs/
