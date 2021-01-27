@@ -504,11 +504,8 @@ class GradientDescentTrainer(Trainer):
         if self._validation_data_loader is not None:
             self._validation_data_loader.set_target_device(self.cuda_device)
         
-        try:
-            self.optimizer = optimizer._grouped_optimizers
-        except AttributeError:
-            self.optimizer = optimizer
-        
+        self.optimizer = optimizer
+
         if patience is None:  # no early stopping
             if validation_data_loader is not None:
                 logger.warning(
@@ -592,11 +589,8 @@ class GradientDescentTrainer(Trainer):
         if self._grad_norm:
             if self._scaler is not None:
                 # Need to first unscale gradients in order to clip as usual.
-                if isinstance(self.optimizer, dict):
-                    for optimizer in self.optimizer.values():
-                        self._scaler.unscale_(optimizer)
-                else:
-                    self._scaler.unscale_(self.optimizer)
+                # NOTE: scaler.unscale_ operates on the groups in optimizer.param_groups
+                self._scaler.unscale_(self.optimizer)
             return clip_grad_norm_(parameters_to_clip, self._grad_norm)
         else:
             return torch.norm(
@@ -712,15 +706,9 @@ class GradientDescentTrainer(Trainer):
             # Zero gradients.
             # NOTE: this is actually more efficient than calling `self.optimizer.zero_grad()`
             # because it avoids a read op when the gradients are first updated below.
-            if isinstance(self.optimizer, dict):
-                for optimizer in self.optimizer.values():
-                    for param_group in optimizer.param_groups:
-                        for p in param_group["params"]:
-                            p.grad = None
-            else:
-                for param_group in self.optimizer.param_groups:
-                    for p in param_group["params"]:
-                        p.grad = None
+            for param_group in self.optimizer.param_groups:
+                for p in param_group["params"]:
+                    p.grad = None
 
             batch_loss = 0.0
             batch_group_outputs = []
@@ -741,8 +729,6 @@ class GradientDescentTrainer(Trainer):
                         train_reg_loss += batch_reg_loss  # type: ignore
 
                 if self._scaler is not None:
-                    # NOTE: If your network has multiple losses, you must call scaler.scale on each of them individually.
-                    # See: https://pytorch.org/docs/stable/notes/amp_examples.html#working-with-multiple-models-losses-and-optimizers for more details.
                     self._scaler.scale(loss).backward()
                 else:
                     loss.backward()
@@ -770,36 +756,19 @@ class GradientDescentTrainer(Trainer):
                 }
 
                 if self._scaler is not None:
-                    # NOTE: scaler.update should only be called once, after all optimizers used this iteration have been stepped
-                    if isinstance(self.optimizer, dict):
-                        for optimizer in self.optimizer.values():
-                            self._scaler.step(optimizer)
-                    else:
-                        self._scaler.step(self.optimizer)
+                    self._scaler.step(self.optimizer)
                     self._scaler.update()
                 else:
-                    if isinstance(self.optimizer, dict):
-                        for optimizer in self.optimizer.values():
-                            optimizer.step()
-                    else:
-                        self.optimizer.step()
+                    self.optimizer.step()
 
                 for name, param in self.model.named_parameters():
                     param_updates[name].sub_(param.detach().cpu())
             else:
                 if self._scaler is not None:
-                    if isinstance(self.optimizer, dict):
-                        for optimizer in self.optimizer.values():
-                            self._scaler.step(optimizer)
-                    else:
-                        self._scaler.step(self.optimizer)
+                    self._scaler.step(self.optimizer)
                     self._scaler.update()
                 else:
-                    if isinstance(self.optimizer, dict):
-                        for optimizer in self.optimizer.values():
-                            optimizer.step()
-                    else:
-                        self.optimizer.step()
+                    self.optimizer.step()
 
             # Update moving averages
             if self._moving_average is not None:
@@ -1163,18 +1132,11 @@ class GradientDescentTrainer(Trainer):
         # These are the training states we need to persist.
         training_states = {
             "metric_tracker": self._metric_tracker.state_dict(),
+            "optimizer": self.optimizer.state_dict(),
             "batch_num_total": self._batch_num_total,
         }
-        # We can have multiple optimizers, so we will create a dictionary mapping an optimizer key 
-        # to the optimizer state_dict and update the `training_states` dictionary with it.
-        optimizer_state_dict = {}
-        if isinstance(self.optimizer, dict):    
-            for optimizer_key, optimizer in self.optimizer.items():
-                optimizer_state_dict[f"{optimizer_key}_optimizer"] = optimizer.state_dict()
-        else:
-            optimizer_state_dict["optimizer"] = self.optimizer.state_dict()
 
-        training_states.update(optimizer_state_dict)
+        # TODO: Should a _scaler.state_dict() be stored here too?
 
         # If we have a learning rate or momentum scheduler, we should persist them too.
         if self._learning_rate_scheduler is not None:
@@ -1217,12 +1179,8 @@ class GradientDescentTrainer(Trainer):
 
         self.model.load_state_dict(model_state)
 
-        if isinstance(self.optimizer, dict):
-            for optimizer_key, optimizer in self.optimizer.items():
-                optimizer.load_state_dict(training_state[f"{optimizer_key}_optimizer"])
-        else:
-            self.optimizer.load_state_dict(training_state["optimizer"])
-       
+        self.optimizer.load_state_dict(training_state["optimizer"])
+
         if (
             self._learning_rate_scheduler is not None
             and "learning_rate_scheduler" in training_state
