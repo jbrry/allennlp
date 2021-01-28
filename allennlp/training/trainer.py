@@ -93,7 +93,6 @@ class Trainer(Registrable):
         """
         Returns a tuple of (model state, training state), where training state could have several
         internal components (e.g., for an, optimizer, learning rate scheduler, etc.).
-
         This is a context manager, and should be called as `with trainer.get_checkpoint_state() as
         state:`, so that the trainer has the opportunity to change and restore its internal state
         for checkpointing.  This is used, e.g., for moving averages of model weights.
@@ -104,11 +103,9 @@ class Trainer(Registrable):
 class TrainerCallback(Registrable):
     """
     A general callback object that handles multiple events.
-
     This class has `on_batch`, `on_epoch`, and `on_end` methods, corresponding to
     each callback type. Each one receives the state of the wrapper object as `self`.
     This enables easier state sharing between related callbacks.
-
     Also, this callback type is instantiated with `serialization_dir` and `on_start` is called
     with the trainer instance as an argument. This might be handy in case of callback logging
     and saving its own files next to the config/checkpoints/logs/etc.
@@ -177,7 +174,6 @@ TrainerCallback.register("null")(TrainerCallback)
 class TensorBoardBatchMemoryUsage(TrainerCallback):
     """
     Logs the CPU and GPU memory usage to tensorboard on every batch.
-
     This is mainly used for debugging as it can cause a significant slowdown in training.
     """
 
@@ -235,85 +231,64 @@ class GradientDescentTrainer(Trainer):
     and a `DataLoader`, and uses the supplied `Optimizer` to learn the weights for your model over
     some fixed number of epochs. You can also pass in a validation data_loader and enable early
     stopping. There are many other bells and whistles as well.
-
     Registered as a `Trainer` with the name "gradient_descent" (and is also the default `Trainer`).
     The constructor that is registered is `from_partial_objects` - see the arguments to that
     function for the exact keys that should be used, if you are using a configuration file.  They
     largely match the arguments to `__init__`, and we don't repeat their docstrings in
     `from_partial_objects`.
-
     [0]: https://tinyurl.com/y5mv44fw
-
     # Parameters
-
     model : `Model`, required.
         An AllenNLP model to be optimized. Pytorch Modules can also be optimized if
         their `forward` method returns a dictionary with a "loss" key, containing a
         scalar tensor representing the loss function to be optimized.
-
         If you are training your model using GPUs, your model should already be
         on the correct device. (If you are using our `train` command this will be
         handled for you.)
-
         In a typical AllenNLP configuration file, this parameter does not get an entry under the
         "trainer", it gets constructed separately.
-
     optimizer : `torch.nn.Optimizer`, required.
         An instance of a Pytorch Optimizer, instantiated with the parameters of the
         model to be optimized.
-
     data_loader : `DataLoader`, required.
         A `DataLoader` containing your `Dataset`, yielding padded indexed batches.
-
         In a typical AllenNLP configuration file, this parameter does not get an entry under the
         "trainer", it gets constructed separately.
-
     patience : `Optional[int] > 0`, optional (default=`None`)
         Number of epochs to be patient before early stopping: the training is stopped
         after `patience` epochs with no improvement. If given, it must be `> 0`.
         If None, early stopping is disabled.
-
     validation_metric : `Union[str, List[str]]`, optional (default=`"-loss"`)
         Validation metric to measure for whether to stop training using patience
         and whether to serialize an `is_best` model each epoch. The metric name
         must be prepended with either "+" or "-", which specifies whether the metric
         is an increasing or decreasing function. If you specify more than one metric,
         the metrics will be summed to make the `is_best` decision.
-
     validation_data_loader : `DataLoader`, optional (default=`None`)
         A `DataLoader` to use for the validation set.  If `None`, then
         use the training `DataLoader` with the validation data.
-
         In a typical AllenNLP configuration file, this parameter does not get an entry under the
         "trainer", it gets constructed separately.
-
     num_epochs : `int`, optional (default = `20`)
         Number of training epochs.
-
     serialization_dir : `str`, optional (default=`None`)
         Path to directory for saving and loading model files. Models will not be saved if
         this parameter is not passed.
-
         In a typical AllenNLP configuration file, this parameter does not get an entry under the
         "trainer", it gets constructed separately.
-
     checkpointer : `Checkpointer`, optional (default=`None`)
         A `Checkpointer` is responsible for periodically saving model weights.  If none is given
         here, we will construct one with default parameters.
-
     cuda_device : `int`, optional (default = `-1`)
         An integer specifying the CUDA device(s) to use for this process. If -1, the CPU is used.
         Data parallelism is controlled at the allennlp train level, so each trainer will have a single
         GPU.
-
     grad_norm : `float`, optional, (default = `None`).
         If provided, gradient norms will be rescaled to have a maximum of this value.
-
     grad_clipping : `float`, optional (default = `None`).
         If provided, gradients will be clipped `during the backward pass` to have an (absolute)
         maximum of this value.  If you are getting `NaNs` in your gradients during training
         that are not solved by using `grad_norm`, you may need this.
-
     learning_rate_scheduler : `LearningRateScheduler`, optional (default = `None`)
         If specified, the learning rate will be decayed with respect to
         this schedule at the end of each epoch (or batch, if the scheduler implements
@@ -321,15 +296,12 @@ class GradientDescentTrainer(Trainer):
         this will use the `validation_metric` provided to determine if learning has plateaued.
         To support updating the learning rate on every batch, this can optionally implement
         `step_batch(batch_num_total)` which updates the learning rate given the batch number.
-
     momentum_scheduler : `MomentumScheduler`, optional (default = `None`)
         If specified, the momentum will be updated at the end of each batch or epoch
         according to the schedule.
-
     tensorboard_writer : `TensorboardWriter`, optional
         If this is not provided, we will construct a `TensorboardWriter` with default
         parameters and use that.
-
     moving_average : `MovingAverage`, optional, (default = `None`)
         If provided, we will maintain moving averages for all parameters. During training, we
         employ a shadow variable for each parameter, which maintains the moving average. During
@@ -337,46 +309,36 @@ class GradientDescentTrainer(Trainer):
         parameters. Be careful that when saving the checkpoint, we will save the moving averages of
         parameters. This is necessary because we want the saved model to perform as well as the validated
         model if we load it later. But this may cause problems if you restart the training from checkpoint.
-
     trainer_callbacks : `List[TrainerCallback]`, optional (default = `None`)
         A list of callbacks that can be called at certain events: e.g. each batch, epoch, and at the start
         and end of training, etc.
-
     distributed : `bool`, optional, (default = `False`)
         If set, PyTorch's `DistributedDataParallel` is used to train the model in multiple GPUs. This also
         requires `world_size` to be greater than 1.
-
         In a typical AllenNLP configuration file, this parameter does not get an entry under the
         "trainer", it gets constructed separately (you need a top-level "distributed" key, next to
         the "trainer" entry, that specifies a list of "cuda_devices").
-
     local_rank : `int`, optional, (default = `0`)
         This is the unique identifier of the `Trainer` in a distributed process group. The GPU device id is
         used as the rank.
-
         In a typical AllenNLP configuration file, this parameter does not get an entry under the
         "trainer", it gets constructed separately.
-
     world_size : `int`, (default = `1`)
         The number of `Trainer` workers participating in the distributed training.
-
         In a typical AllenNLP configuration file, this parameter does not get an entry under the
         "trainer", it gets constructed separately.
-
     num_gradient_accumulation_steps : `int`, optional, (default = `1`)
         Gradients are accumulated for the given number of steps before doing an optimizer step. This can
         be useful to accommodate batches that are larger than the RAM size. Refer [Thomas Wolf's
         post][0] for details on Gradient Accumulation.
-
     use_amp : `bool`, optional, (default = `False`)
         If `True`, we'll train using [Automatic Mixed Precision](https://pytorch.org/docs/stable/amp.html).
-
     """
 
     def __init__(
         self,
         model: Model,
-        optimizer: Optimizer,
+        optimizer: torch.optim.Optimizer,
         data_loader: DataLoader,
         patience: Optional[int] = None,
         validation_metric: Union[str, List[str]] = "-loss",
@@ -409,7 +371,6 @@ class GradientDescentTrainer(Trainer):
         self._validation_data_loader = validation_data_loader
         if self._validation_data_loader is not None:
             self._validation_data_loader.set_target_device(self.cuda_device)
-        
         self.optimizer = optimizer
 
         if patience is None:  # no early stopping
@@ -482,14 +443,12 @@ class GradientDescentTrainer(Trainer):
     def rescale_gradients(self) -> float:
         """
         Performs gradient rescaling. Is a no-op if gradient rescaling is not enabled.
-
         Returns the norm of the gradients.
         """
         parameters_to_clip = [p for p in self.model.parameters() if p.grad is not None]
         if self._grad_norm:
             if self._scaler is not None:
                 # Need to first unscale gradients in order to clip as usual.
-                # NOTE: scaler.unscale_ operates on the groups in optimizer.param_groups
                 self._scaler.unscale_(self.optimizer)
             return clip_grad_norm_(parameters_to_clip, self._grad_norm)
         else:
@@ -583,7 +542,7 @@ class GradientDescentTrainer(Trainer):
             if self._distributed:
                 # Check whether the other workers have stopped already (due to differing amounts of
                 # data in each). If so, we can't proceed because we would hang when we hit the
-                # barrier implicit in Model.forward. We use a IntTensor instead of a BoolTensor
+                # barrier implicit in Model.forward. We use a IntTensor instead a BoolTensor
                 # here because NCCL process groups apparently don't support BoolTensor.
                 done = torch.tensor(0, device=self.cuda_device)
                 torch.distributed.all_reduce(done, torch.distributed.ReduceOp.SUM)
@@ -609,7 +568,7 @@ class GradientDescentTrainer(Trainer):
             for param_group in self.optimizer.param_groups:
                 for p in param_group["params"]:
                     p.grad = None
-                               
+
             batch_loss = 0.0
             batch_group_outputs = []
             for batch in batch_group:
@@ -692,7 +651,7 @@ class GradientDescentTrainer(Trainer):
                 batch_group_generator_tqdm.set_description(description, refresh=False)
                 self._tensorboard.log_batch(
                     self.model,
-                    self.optimizer, # TODO
+                    self.optimizer,
                     batch_grad_norm,
                     metrics,
                     batch_group,
@@ -1044,8 +1003,6 @@ class GradientDescentTrainer(Trainer):
             "batch_num_total": self._batch_num_total,
         }
 
-        # TODO: Should a _scaler.state_dict() be stored here too?
-
         # If we have a learning rate or momentum scheduler, we should persist them too.
         if self._learning_rate_scheduler is not None:
             training_states["learning_rate_scheduler"] = self._learning_rate_scheduler.state_dict()
@@ -1066,12 +1023,9 @@ class GradientDescentTrainer(Trainer):
         if you wish to load a model for inference/load parts of a model into a new
         computation graph, you should use the native Pytorch functions:
         ` model.load_state_dict(torch.load("/path/to/model/weights.th"))`
-
         If `self._serialization_dir` does not exist or does not contain any checkpointed weights,
         this function will do nothing and return 0.
-
         # Returns
-
         epoch: `int`
             The epoch at which to resume training, which should be one after the epoch
             in the saved training state.
@@ -1086,9 +1040,7 @@ class GradientDescentTrainer(Trainer):
             return 0
 
         self.model.load_state_dict(model_state)
-
         self.optimizer.load_state_dict(training_state["optimizer"])
-
         if (
             self._learning_rate_scheduler is not None
             and "learning_rate_scheduler" in training_state
@@ -1149,14 +1101,12 @@ class GradientDescentTrainer(Trainer):
         This method exists so that we can have a documented method to construct this class using
         `FromParams`. If you are not using `FromParams` or config files, you can safely ignore this
         method.
-
         The reason we can't just use `__init__` with `FromParams` here is because there are
         sequential dependencies to this class's arguments.  Anything that has a `Lazy[]` type
         annotation needs something from one of the non-`Lazy` arguments.  The `Optimizer` needs to
         have the parameters from the `Model` before it's constructed, and the `Schedulers` need to
         have the `Optimizer`. Because of this, the typical way we construct things `FromParams`
         doesn't work, so we use `Lazy` to allow for constructing the objects sequentially.
-
         If you're not using `FromParams`, you can just construct these arguments in the right order
         yourself in your code and call the constructor directly.
         """
