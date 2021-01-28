@@ -609,7 +609,7 @@ class GradientDescentTrainer(Trainer):
             for param_group in self.optimizer.param_groups:
                 for p in param_group["params"]:
                     p.grad = None
-
+                               
             batch_loss = 0.0
             batch_group_outputs = []
             for batch in batch_group:

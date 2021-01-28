@@ -232,10 +232,6 @@ class RegexOptimizer(Optimizer):
         self._grouped_optimizers: Dict[str, Optimizer] = {}
 
         # Create parameter_groups for specific regexes.
-        # `optimizers` behave exactly as `parameter_groups` except that additional metadata is included which specifies
-        # the optimizer type, e.g. 'adam' as well as a name which will be used as the key for this optimizer.
-        # You can include any keyword arguments you want here but if those keys are not accepted by the optimizer you want to use,
-        # you should add them to `optimizer_ignore_keys` so they are not passed to the optimizer.
         self.parameter_groups = make_parameter_groups(model_parameters, optimizers)
 
         # For each of the parameter groups, create a separate Optimizer.
@@ -257,17 +253,7 @@ class RegexOptimizer(Optimizer):
             else:
                 self._grouped_optimizers["default"] = Optimizer.from_params(model_parameters=params, params=Params(self.default_optimizer_kwargs))
 
-        # TODO: scaler.unscale_ / scaler.step operates on the groups in optimizer.param_groups
-        # we need to make sure that the params of the sub-optimizers experience these changes.
-        # TODO:
-        # for param_group in self.optimizer.param_groups:
-        #     for p in param_group["params"]:
-        #         p.grad = None
-        # Does setting p.grad = None in the RegexOptimizer's param_groups also change the gradients of the parameters for the sub-optimizers?
-        # i.e. Do the sub-optimizer 'params' just use the parameter names or do they store those values of parameters internally so changes to the outside
-        # group do not change the internal group?
-        defaults = self.default_optimizer_kwargs
-        super().__init__(self.parameter_groups, defaults)
+        super().__init__(self.parameter_groups, self.default_optimizer_kwargs)
     
     @overrides
     def step(self):
@@ -281,7 +267,8 @@ class RegexOptimizer(Optimizer):
     def state_dict(self):
         """
         Creates `optimizer_state_dict`, which is a dictionary mapping an optimizer key to its `state_dict`.
-        This dictionary is used as the value for 'optimizer' in the 'training_states' dictionary.
+        This dictionary is used as the value for 'optimizer' in the 'training_states' dictionary,
+        e.g. "optimizer" : { "regex1_optimizer" : regex1_state_dict, "regex2_optimizer" : regex2_state_dict}.
         """
         optimizer_state_dict = {}
 
