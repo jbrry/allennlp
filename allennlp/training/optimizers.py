@@ -232,11 +232,11 @@ class RegexOptimizer(Optimizer):
 
         self._grouped_optimizers: Dict[str, Optimizer] = {}
 
-        # Populate a group of optimizer parameters in the format ready for a PyTorch Optimizer.
-        # Each optimizer name will be mapped to a tuple where the first element of the tuple is a list
-        # which either stores a list of parameters or a list of dictionaries.
-        # The second element in the tuple are the key-word arguments for initializing the optimizer.
-        # optimizer_groups = Dict[str: Tuple[List[Any], Dict[str, Any]]]
+        # Here, we create a dictionary which maps some metadata 'name' to a tuple.
+        # The first element of the tuple is an iterable containing the model parameters, 
+        # or an iterable of `dict`s in the case that you want to set group parameter options.
+        # The second element of the tuple are the keyword arguments for the optimizer, which
+        # will be used as defaults for the groups that didn't override them.
         optimizer_groups = {optimizer["name"]: ([], {}) for optimizer in self.optimizers}
 
         for optimizer in self.optimizers:
