@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 def make_parameter_groups(
     model_parameters: List[Tuple[str, torch.nn.Parameter]],
-    groups: List[Tuple[List[str], Dict[str, Any]]] = None, # changed from groups to optimizers
+    groups: List[Tuple[List[str], Dict[str, Any]]] = None,
 ) -> Union[List[Dict[str, Any]], List[torch.nn.Parameter]]:
     """
     Takes a list of model parameters with associated names (typically coming from something like
@@ -220,40 +220,64 @@ class RegexOptimizer(Optimizer):
     """
     def __init__(self,
                 model_parameters: List[Tuple[str, torch.nn.Parameter]],
-                optimizers: List[Tuple[List[str], Dict[str, Any]]],
-                optimizer_ignore_keys: List[str],
-                default_optimizer_kwargs: Dict[str, Any],
+                optimizers,
+                parameter_groups: List[Tuple[List[str], Dict[str, Any]]],
+                #optimizer_ignore_keys: List[str],
+                #default_optimizer_kwargs: Dict[str, Any],
+                #lr: float = 0.001,
                 ):
 
         self.optimizers = optimizers
-        self.optimizer_ignore_keys = optimizer_ignore_keys
-        self.default_optimizer_kwargs = default_optimizer_kwargs
+        self.paramater_groups = parameter_groups
 
         self._grouped_optimizers: Dict[str, Optimizer] = {}
 
-        # Create parameter_groups for specific regexes.
-        self.parameter_groups = make_parameter_groups(model_parameters, optimizers)
+        # Populate a group of optimizer parameters in the format ready for a PyTorch Optimizer.
+        # Each optimizer name will be mapped to a tuple where the first element of the tuple is a list
+        # which either stores a list of parameters or a list of dictionaries.
+        # The second element in the tuple are the key-word arguments for initializing the optimizer.
+        # optimizer_groups = Dict[str: Tuple[List[Any], Dict[str, Any]]]
+        optimizer_groups = {optimizer["name"]: ([], {}) for optimizer in self.optimizers}
 
-        # For each of the parameter groups, create a separate Optimizer.
-        for parameter_group in self.parameter_groups:
-            params = parameter_group["params"]
+        for optimizer in self.optimizers:
+            optimizer_key = optimizer["name"]
+            for key, value in optimizer.items():
+                if key != "name":
+                    # Set optimizer kwargs.
+                    optimizer_groups[optimizer_key][1][key] = value
 
-            # Populate optimizer kwargs.
-            optimizer_kwargs = {}
-            for key in list(parameter_group.keys()):
-                # Exclude non-default optimizer keys, e.g. those used for metadata.
-                if key not in self.optimizer_ignore_keys:
-                    optimizer_kwargs[key] = parameter_group[key]
-            
-            # TODO: When deferring to separate optimizers, the model parameters are initialized with the `make_parameter_groups`
-            # function but we have already created our parameter groups.
-            if "name" in parameter_group.keys():
-                self._grouped_optimizers[parameter_group["name"]] = Optimizer.from_params(model_parameters=params, params=Params(optimizer_kwargs))
-            # The last entry in parameter_groups is created for the default group.
+        print(optimizer_groups)
+
+        # Create parameter_groups for our optimizers.
+        parameter_groups = make_parameter_groups(model_parameters, self.paramater_groups)
+        for paramater_group in parameter_groups:
+            # Assign this group to its appropriate optimizer.
+            if "name" in list(paramater_group.keys()):
+                optimizer_key = paramater_group["name"]
+                # Create a group to be passed to the optimizer.
+                group = {"params": paramater_group["params"]}
+                # Populate the optimizer-specific options for this group.
+                for key, value in paramater_group.items():
+                    if key != "name":
+                        group[key] = paramater_group[key]
+                # pass this group to its optimizer
+                optimizer_groups[optimizer_key][0].append(group)
+            # Assign group to the default group.
             else:
-                self._grouped_optimizers["default"] = Optimizer.from_params(model_parameters=params, params=Params(self.default_optimizer_kwargs))
+                group = {"params": paramater_group["params"]}
+                optimizer_groups["default"][0].append(group)
 
-        super().__init__(self.parameter_groups, self.default_optimizer_kwargs)
+        print(optimizer_groups)
+        #raise ValueError
+
+        # TODO: When deferring to separate optimizers, the model parameters are initialized with the `make_parameter_groups`
+        # function but we have already created our parameter groups.
+        # Now create the optimizers:
+        for optimizer_name, (params, optimizer_kwargs) in optimizer_groups.items():
+            self._grouped_optimizers[optimizer_name] = Optimizer.from_params(model_parameters=params, params=Params(optimizer_kwargs))
+
+        #print(self._grouped_optimizers)
+        #super().__init__(parameter_groups1, self.default_optimizer_kwargs)
     
     @overrides
     def step(self):
@@ -284,6 +308,13 @@ class RegexOptimizer(Optimizer):
         """
         for optimizer_key, optimizer in self._grouped_optimizers.items():
             optimizer.load_state_dict(training_state[f"{optimizer_key}_optimizer"])
+
+    @overrides
+    def zero_grad(self, set_to_none: bool = False):
+        print("boolean, ", set_to_none)
+        for optimizer in self._grouped_optimizers.values():
+            optimizer.zero_grad(set_to_none)
+
 
 
 @Optimizer.register("adam")
@@ -404,7 +435,8 @@ class HuggingfaceAdamWOptimizer(Optimizer, transformers.AdamW):
         correct_bias: bool = True,
     ):
         super().__init__(
-            params=make_parameter_groups(model_parameters, parameter_groups),
+            #params=make_parameter_groups(model_parameters, parameter_groups),
+            params=model_parameters,
             lr=lr,
             betas=betas,
             eps=eps,
