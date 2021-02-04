@@ -338,7 +338,8 @@ class GradientDescentTrainer(Trainer):
     def __init__(
         self,
         model: Model,
-        optimizer: torch.optim.Optimizer,
+        #optimizer: torch.optim.Optimizer,
+        optimizer: Optimizer,
         data_loader: DataLoader,
         patience: Optional[int] = None,
         validation_metric: Union[str, List[str]] = "-loss",
@@ -371,8 +372,9 @@ class GradientDescentTrainer(Trainer):
         self._validation_data_loader = validation_data_loader
         if self._validation_data_loader is not None:
             self._validation_data_loader.set_target_device(self.cuda_device)
-        self.optimizer = optimizer
 
+        self.optimizer = optimizer
+        
         if patience is None:  # no early stopping
             if validation_data_loader is not None:
                 logger.warning(
@@ -471,6 +473,7 @@ class GradientDescentTrainer(Trainer):
                 if regularization_penalty is not None:
                     output_dict["reg_loss"] = regularization_penalty
                     output_dict["loss"] += regularization_penalty
+                    # TODO
 
             except AssertionError:
                 if for_training:
@@ -497,8 +500,13 @@ class GradientDescentTrainer(Trainer):
 
         regularization_penalty = self.model.get_regularization_penalty()
 
+
+        # TODO: 
         train_loss = 0.0
         batch_loss = 0.0
+
+        #train_task_losses = 
+
         train_reg_loss = None if regularization_penalty is None else 0.0
         batch_reg_loss = None if regularization_penalty is None else 0.0
 
@@ -566,9 +574,12 @@ class GradientDescentTrainer(Trainer):
             # NOTE: this is actually more efficient than calling `self.optimizer.zero_grad()`
             # because it avoids a read op when the gradients are first updated below.
             for param_group in self.optimizer.param_groups:
-                for p in param_group["params"]:
-                    p.grad = None
+               for p in param_group["params"]:
+                   p.grad = None
+            
+            #self.optimizer.zero_grad(set_to_none=False)
 
+            # TODO
             batch_loss = 0.0
             batch_group_outputs = []
             for batch in batch_group:
@@ -576,6 +587,12 @@ class GradientDescentTrainer(Trainer):
                     batch_outputs = self.batch_outputs(batch, for_training=True)
                     batch_group_outputs.append(batch_outputs)
                     loss = batch_outputs["loss"]
+
+                    task_losses = batch_outputs["task_losses"]
+                    for task_loss_key, task_loss in task_losses.items():
+                        print(f"{task_loss_key} == {task_loss}")
+                        task_loss = task_loss / len(batch_group)
+
                     reg_loss = batch_outputs.get("reg_loss")
                     if torch.isnan(loss):
                         raise ValueError("nan loss encountered")
@@ -590,7 +607,11 @@ class GradientDescentTrainer(Trainer):
                 if self._scaler is not None:
                     self._scaler.scale(loss).backward()
                 else:
-                    loss.backward()
+                    #loss.backward(retain_graph = True)
+                    for task_loss in task_losses.values():
+                        task_loss.backward(retain_graph = True)
+
+
 
             train_loss += batch_loss
 
