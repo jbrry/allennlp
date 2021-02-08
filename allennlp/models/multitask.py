@@ -75,6 +75,7 @@ class MultiTaskModel(Model):
         backbone: Backbone,
         heads: Dict[str, Head],
         *,
+        multiple_losses: bool = False,
         loss_weights: Dict[str, float] = None,
         arg_name_mapping: Dict[str, Dict[str, str]] = None,
         allowed_arguments: Dict[str, Set[str]] = None,
@@ -92,6 +93,7 @@ class MultiTaskModel(Model):
             **{key: get_forward_arguments(heads[key]) for key in heads},
         }
         self._loss_weights = loss_weights or defaultdict(lambda: 1.0)
+        self._multiple_losses = multiple_losses
         initializer(self)
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:  # type: ignore
@@ -126,6 +128,9 @@ class MultiTaskModel(Model):
             if head_name not in task_indices:
                 continue
 
+            if self._multiple_losses:
+                task_loss = None
+
             head_arguments = self._get_arguments(combined_arguments, head_name)
             head_arguments = {
                 key: make_inputs_for_task(head_name, value) for key, value in head_arguments.items()
@@ -138,10 +143,17 @@ class MultiTaskModel(Model):
             if "loss" in head_outputs:
                 self._heads_called.add(head_name)
                 head_loss = self._loss_weights[head_name] * head_outputs["loss"]
-                if loss is None:
-                    loss = head_loss
+
+                if self._multiple_losses:
+                    if task_loss is None:
+                        outputs["task_losses"][f"{head_name}_loss"] = head_loss
+                    else:
+                        raise ValueError("The task loss should be reset each time a head is called when using multiple losses.")
                 else:
-                    loss += head_loss
+                    if loss is None:
+                        loss = head_loss
+                    else:
+                        loss += head_loss
 
         if loss is not None:
             outputs["loss"] = loss
