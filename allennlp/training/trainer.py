@@ -469,11 +469,13 @@ class GradientDescentTrainer(Trainer):
             try:
                 assert "loss" in output_dict
                 regularization_penalty = self.model.get_regularization_penalty()
-
                 if regularization_penalty is not None:
                     output_dict["reg_loss"] = regularization_penalty
+                    if self._multiple_losses:
+                        for task_key in output_dict["task_losses"].keys():
+                            output_dict["task_losses"][f"{task_key}"] += regularization_penalty
+                    
                     output_dict["loss"] += regularization_penalty
-                    # TODO
 
             except AssertionError:
                 if for_training:
@@ -502,7 +504,7 @@ class GradientDescentTrainer(Trainer):
 
         train_loss = 0.0
         batch_loss = 0.0
-        # TODO
+
         train_reg_loss = None if regularization_penalty is None else 0.0
         batch_reg_loss = None if regularization_penalty is None else 0.0
 
@@ -572,7 +574,6 @@ class GradientDescentTrainer(Trainer):
             for param_group in self.optimizer.param_groups:
                for p in param_group["params"]:
                    p.grad = None
-            #self.optimizer.zero_grad(set_to_none = False)
 
             batch_loss = 0.0
             batch_group_outputs = []
@@ -607,7 +608,7 @@ class GradientDescentTrainer(Trainer):
                         for i, task_loss in enumerate(task_losses.values(), start=1):
                             # Release the computation graph on last iteration to free up memory.
                             if i < len(task_losses):
-                                self._scaler.scale(task_loss).backward(retain_graph = True)
+                                self._scaler.scale(task_loss).backward(retain_graph=True)
                             else:
                                 self._scaler.scale(task_loss).backward()
                     else:
@@ -616,7 +617,7 @@ class GradientDescentTrainer(Trainer):
                     if self._multiple_losses:
                         for i, task_loss in enumerate(task_losses.values(), start=1):
                             if i < len(task_losses):
-                                task_loss.backward(retain_graph = True)
+                                task_loss.backward(retain_graph=True)
                             else:
                                 task_loss.backward()
                     else:
@@ -766,7 +767,7 @@ class GradientDescentTrainer(Trainer):
         batches_this_epoch = 0
         val_loss = 0.0
         val_batch_loss = 0.0
-        # TODO
+
         val_reg_loss = None if regularization_penalty is None else 0.0
         val_batch_reg_loss = None if regularization_penalty is None else 0.0
         done_early = False
@@ -801,7 +802,6 @@ class GradientDescentTrainer(Trainer):
                 else:
                     loss = batch_outputs.get("loss")
 
-                # TODO
                 reg_loss = batch_outputs.get("reg_loss")
 
                 if loss is not None:
@@ -813,7 +813,6 @@ class GradientDescentTrainer(Trainer):
                     batches_this_epoch += 1
                     val_batch_loss = loss.item()
                     val_loss += val_batch_loss
-                    # TODO:
                     if reg_loss is not None:
                         val_batch_reg_loss = reg_loss.item()
                         val_reg_loss += val_batch_reg_loss  # type: ignore
