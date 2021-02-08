@@ -144,16 +144,16 @@ class MultiTaskModel(Model):
                 self._heads_called.add(head_name)
                 head_loss = self._loss_weights[head_name] * head_outputs["loss"]
 
+                if loss is None:
+                    loss = head_loss
+                else:
+                    loss += head_loss
+
                 if self._multiple_losses:
                     if task_loss is None:
                         outputs["task_losses"][f"{head_name}_loss"] = head_loss
                     else:
                         raise ValueError("The task loss should be reset each time a head is called when using multiple losses.")
-                else:
-                    if loss is None:
-                        loss = head_loss
-                    else:
-                        loss += head_loss
 
         if loss is not None:
             outputs["loss"] = loss
