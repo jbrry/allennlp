@@ -269,11 +269,12 @@ class RegexOptimizer(Optimizer):
         Assigns an optimizer or group-specific options to certain parameter groups.
         """
         for parameter_group in parameter_groups:
+            # Create a group to be passed to the optimizer.
+            group = {}
+
             # Check to see what optimizer this group should be assigned to.
             if "name" in list(parameter_group.keys()):
                 optimizer_key = parameter_group["name"]
-                # Create a group to be passed to the optimizer.
-                group = {}
                 for key in parameter_group.keys():
                     if key != "name":
                         group[key] = parameter_group[key]
@@ -281,9 +282,10 @@ class RegexOptimizer(Optimizer):
                 optimizer_groups[optimizer_key][0].append(group)
             # If no optimizer name is given, assign this group the default group.
             else:
-                group = {"params": parameter_group["params"]}
+                for key in parameter_group.keys():
+                    group[key] = parameter_group[key]
                 optimizer_groups["default"][0].append(group)
-                
+  
     @overrides
     def step(self):
         """
