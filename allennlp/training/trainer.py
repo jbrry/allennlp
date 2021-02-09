@@ -459,9 +459,6 @@ class GradientDescentTrainer(Trainer):
     use_amp : `bool`, optional, (default = `False`)
         If `True`, we'll train using [Automatic Mixed Precision](https://pytorch.org/docs/stable/amp.html).
 
-    multiple_losses : `bool`, optional, (default = `False`)
-        If `True`, we'll call .backward() over multiple losses which are returned by your model. This is only supported if you are using `MultiTaskModel`.
-
     """
 
     def __init__(
@@ -487,7 +484,6 @@ class GradientDescentTrainer(Trainer):
         world_size: int = 1,
         num_gradient_accumulation_steps: int = 1,
         use_amp: bool = False,
-        multiple_losses: bool = False,
     ) -> None:
         super().__init__(serialization_dir, cuda_device, distributed, local_rank, world_size)
 
@@ -544,7 +540,6 @@ class GradientDescentTrainer(Trainer):
         # Enable automatic mixed precision training.
         self._scaler: Optional[amp.GradScaler] = None
         self._use_amp = use_amp
-        self._multiple_losses = multiple_losses
         if self._use_amp:
             if self.cuda_device == torch.device("cpu"):
                 raise ValueError("Using AMP requires a cuda device")
@@ -597,9 +592,6 @@ class GradientDescentTrainer(Trainer):
 
                 if regularization_penalty is not None:
                     output_dict["reg_loss"] = regularization_penalty
-                    if self._multiple_losses:
-                        for task_key in output_dict["task_losses"].keys():
-                            output_dict["task_losses"][f"{task_key}"] += regularization_penalty       
                     output_dict["loss"] += regularization_penalty
 
             except AssertionError:
@@ -705,47 +697,22 @@ class GradientDescentTrainer(Trainer):
                 with amp.autocast(self._use_amp):
                     batch_outputs = self.batch_outputs(batch, for_training=True)
                     batch_group_outputs.append(batch_outputs)
-                
-                    if self._multiple_losses:
-                        task_losses = batch_outputs["task_losses"]
-                        for task_loss in task_losses.values():
-                            if torch.isnan(task_loss):
-                                raise ValueError("nan loss encountered")
-                            task_loss = task_loss / len(batch_group)
-                            batch_loss += task_loss.item()
-                    else:
-                        loss = batch_outputs["loss"]
-                        if torch.isnan(loss):
-                            raise ValueError("nan loss encountered")
-                        loss = loss / len(batch_group)
-                        batch_loss += loss.item()
-
+                    loss = batch_outputs["loss"]
                     reg_loss = batch_outputs.get("reg_loss")
+                    if torch.isnan(loss):
+                        raise ValueError("nan loss encountered")
+                    loss = loss / len(batch_group)
 
+                    batch_loss += loss.item()
                     if reg_loss is not None:
                         reg_loss = reg_loss / len(batch_group)
                         batch_reg_loss = reg_loss.item()
                         train_reg_loss += batch_reg_loss  # type: ignore
 
                 if self._scaler is not None:
-                    if self._multiple_losses:
-                        for i, task_loss in enumerate(task_losses.values(), start=1):
-                            # Release the computation graph on last iteration to free up memory.
-                            if i < len(task_losses):
-                                self._scaler.scale(task_loss).backward(retain_graph=True)
-                            else:
-                                self._scaler.scale(task_loss).backward()
-                    else:
-                        self._scaler.scale(loss).backward()
+                    self._scaler.scale(loss).backward()
                 else:
-                    if self._multiple_losses:
-                        for i, task_loss in enumerate(task_losses.values(), start=1):
-                            if i < len(task_losses):
-                                task_loss.backward(retain_graph=True)
-                            else:
-                                task_loss.backward()
-                    else:
-                        loss.backward()
+                    loss.backward()
 
             train_loss += batch_loss
 
@@ -889,15 +856,7 @@ class GradientDescentTrainer(Trainer):
 
             with amp.autocast(self._use_amp):
                 batch_outputs = self.batch_outputs(batch, for_training=False)
-
-                if self._multiple_losses:
-                    loss = 0.0
-                    task_losses = batch_outputs.get("task_losses")
-                    for task_loss in task_losses.values():
-                        loss += task_loss
-                else:
-                    loss = batch_outputs.get("loss")
-
+                loss = batch_outputs.get("loss")
                 reg_loss = batch_outputs.get("reg_loss")
                 if loss is not None:
                     # You shouldn't necessarily have to compute a loss for validation, so we allow for
@@ -1219,7 +1178,6 @@ class GradientDescentTrainer(Trainer):
         world_size: int = 1,
         num_gradient_accumulation_steps: int = 1,
         use_amp: bool = False,
-        multiple_losses: bool = False,
         no_grad: List[str] = None,
         optimizer: Lazy[Optimizer] = Lazy(Optimizer.default),
         learning_rate_scheduler: Lazy[LearningRateScheduler] = None,
@@ -1322,5 +1280,4 @@ class GradientDescentTrainer(Trainer):
             world_size=world_size,
             num_gradient_accumulation_steps=num_gradient_accumulation_steps,
             use_amp=use_amp,
-            multiple_losses=multiple_losses,
         )
