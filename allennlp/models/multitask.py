@@ -40,8 +40,6 @@ class MultiTaskModel(Model):
     vocab: `Vocab`
     backbone: `Backbone`
     heads: `Dict[str, Head]`
-    multiple_losses : `bool`, optional, (default = `False`)
-        If `True`, we store the loss from each head to outputs["task_losses"].
     loss_weights: `Dict[str, float]`, optional (default = `equal weighting`)
         If you want, you can specify a weight for each head, which we will multiply the loss by when
         aggregating across heads. This is equivalent in many cases to specifying a separate
@@ -77,7 +75,6 @@ class MultiTaskModel(Model):
         backbone: Backbone,
         heads: Dict[str, Head],
         *,
-        multiple_losses: bool = False,
         loss_weights: Dict[str, float] = None,
         arg_name_mapping: Dict[str, Dict[str, str]] = None,
         allowed_arguments: Dict[str, Set[str]] = None,
@@ -95,7 +92,6 @@ class MultiTaskModel(Model):
             **{key: get_forward_arguments(heads[key]) for key in heads},
         }
         self._loss_weights = loss_weights or defaultdict(lambda: 1.0)
-        self._multiple_losses = multiple_losses
         initializer(self)
 
     def forward(self, **kwargs) -> Dict[str, torch.Tensor]:  # type: ignore
@@ -130,9 +126,6 @@ class MultiTaskModel(Model):
             if head_name not in task_indices:
                 continue
 
-            if self._multiple_losses:
-                task_loss = None
-
             head_arguments = self._get_arguments(combined_arguments, head_name)
             head_arguments = {
                 key: make_inputs_for_task(head_name, value) for key, value in head_arguments.items()
@@ -149,12 +142,6 @@ class MultiTaskModel(Model):
                     loss = head_loss
                 else:
                     loss += head_loss
-
-                if self._multiple_losses:
-                    if task_loss is None:
-                        outputs["task_losses"][f"{head_name}_loss"] = head_loss
-                    else:
-                        raise ValueError("The task loss should be reset each time a head is called when using multiple losses.")
 
         if loss is not None:
             outputs["loss"] = loss
